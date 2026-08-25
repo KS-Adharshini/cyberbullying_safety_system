@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vscode/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
