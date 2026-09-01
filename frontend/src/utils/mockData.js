@@ -266,6 +266,21 @@ export const unsuspendLocalUser = (username, reason, details) => {
   });
 };
 
+export const unwarnLocalUser = (username, reason, details) => {
+  localUsers = localUsers.map(u => 
+    u.username === username ? { ...u, status: "Normal" } : u
+  );
+  localLogs.unshift({
+    logId: `log_${Date.now()}`,
+    action: "UNWARN",
+    targetUser: username,
+    moderator: "Admin_Moderator",
+    reason: reason || "Warning revoked by moderator.",
+    details: details || "Account status restored to Normal.",
+    timestamp: new Date().toISOString()
+  });
+};
+
 export const addLocalPost = (newPost) => {
   MOCK_POSTS.unshift(newPost);
   localUsers = localUsers.map(u => 

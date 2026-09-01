@@ -56,22 +56,15 @@ function HomeFeed({ currentUser }) {
     window.addEventListener('post-deleted', handlePostDeleted)
     window.addEventListener('comment-deleted', handleCommentDeleted)
 
-    const postsInterval = setInterval(() => {
-      fetchPosts(false)
-    }, 5000)
+    // Check initial AI model status
+    try {
+      const status = api.getAiStatus()
+      setAiStatus(status)
+    } catch (err) {
+      console.error(err)
+    }
 
-    // Periodically poll the AI models loading state in the browser
-    const interval = setInterval(() => {
-      try {
-        const status = api.getAiStatus()
-        setAiStatus(status)
-      } catch (err) {
-        console.error(err)
-      }
-    }, 1000)
     return () => {
-      clearInterval(interval)
-      clearInterval(postsInterval)
       window.removeEventListener('post-deleted', handlePostDeleted)
       window.removeEventListener('comment-deleted', handleCommentDeleted)
     }

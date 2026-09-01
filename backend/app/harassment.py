@@ -1,6 +1,16 @@
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
+def parse_ts(ts) -> datetime:
+    if isinstance(ts, datetime):
+        return ts
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            return datetime.utcnow()
+    return datetime.utcnow()
+
 def calculate_consecutive_days(timestamps: List[datetime]) -> int:
     """
     Calculates the maximum consecutive days with toxic comments.
@@ -9,7 +19,7 @@ def calculate_consecutive_days(timestamps: List[datetime]) -> int:
         return 0
         
     # Extract unique dates sorted
-    dates = sorted(list(set(ts.date() for ts in timestamps)))
+    dates = sorted(list(set(parse_ts(ts).date() for ts in timestamps)))
     
     max_consec = 1
     current_consec = 1
@@ -61,7 +71,7 @@ def analyze_harassment(comments: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Map: 10+ toxic comments in 7 days = 100 points, otherwise linear scaling.
     now = datetime.utcnow()
     seven_days_ago = now - timedelta(days=7)
-    recent_toxic = [c for c in toxic_comments if c.get("timestamp") >= seven_days_ago]
+    recent_toxic = [c for c in toxic_comments if parse_ts(c.get("timestamp")) >= seven_days_ago]
     recent_toxic_count = len(recent_toxic)
     frequency_score = min((recent_toxic_count / 10.0) * 100.0, 100.0)
     
@@ -123,24 +133,24 @@ def analyze_harassment(comments: List[Dict[str, Any]]) -> Dict[str, Any]:
             
     for target, target_comments in toxic_by_target.items():
         # Sort by timestamp
-        target_comments.sort(key=lambda x: x["timestamp"])
+        target_comments.sort(key=lambda x: parse_ts(x["timestamp"]))
         
         # Sliding window check
         n = len(target_comments)
         for i in range(n):
             window = []
-            start_time = target_comments[i]["timestamp"]
+            start_time = parse_ts(target_comments[i]["timestamp"])
             limit_time = start_time + timedelta(days=7)
             
             for j in range(i, n):
-                if target_comments[j]["timestamp"] <= limit_time:
+                if parse_ts(target_comments[j]["timestamp"]) <= limit_time:
                     window.append(target_comments[j])
                 else:
                     break
                     
             if len(window) >= 3:  # Threshold for repeated attacks in 7 days
                 repeated_detected = True
-                days_span = (window[-1]["timestamp"] - window[0]["timestamp"]).days
+                days_span = (parse_ts(window[-1]["timestamp"]) - parse_ts(window[0]["timestamp"])).days
                 if days_span == 0:
                     days_span = 1
                 repeated_reason = f"Repeatedly targeted {target} - {len(window)} toxic comments within {days_span} days"
@@ -155,7 +165,7 @@ def analyze_harassment(comments: List[Dict[str, Any]]) -> Dict[str, Any]:
         comments_per_day[day] = {"total": 0, "toxic": 0}
         
     for c in comments:
-        day_str = c.get("timestamp").strftime("%Y-%m-%d")
+        day_str = parse_ts(c.get("timestamp")).strftime("%Y-%m-%d")
         if day_str in comments_per_day:
             comments_per_day[day_str]["total"] += 1
             if c.get("isToxic", False):

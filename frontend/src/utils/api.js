@@ -1,7 +1,7 @@
 import { 
   MOCK_POSTS, getLocalComments, getLocalUsers, getLocalLogs, getLocalNotifications, addLocalNotification, getLocalReposts, addLocalRepost, getLocalImageReports, addLocalImageReport,
   markLocalNotificationRead, markAllLocalNotificationsRead,
-  addLocalComment, deleteLocalComment, deleteLocalCommentsByPost, deleteLocalPost, warnLocalUser, suspendLocalUser, unsuspendLocalUser, addLocalPost 
+  addLocalComment, deleteLocalComment, deleteLocalCommentsByPost, deleteLocalPost, warnLocalUser, unwarnLocalUser, suspendLocalUser, unsuspendLocalUser, addLocalPost 
 } from './mockData'
 import { runAiPipeline, loadPipelineModels, isModelReady, isModelLoading, modelLoadingStatus } from './aiPipeline'
 import Tesseract from 'tesseract.js'
@@ -113,14 +113,16 @@ const translateHindiWord = (word) => {
 
 const analyzeToxicityClient = (text) => {
   const clean = text.toLowerCase();
-  // Count characters for robust detection with OCR noise
   let language = "English";
   let translatedText = text;
-
+  const latinChars = (text.match(/[A-Za-z]/g) || []).length;
   const tamilChars = (text.match(/[\u0B80-\u0BFF]/g) || []).length;
   const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
 
-  if (hindiChars > 0 && hindiChars >= tamilChars) {
+  if (latinChars >= 2 && latinChars >= hindiChars && latinChars >= tamilChars) {
+    language = "English";
+    translatedText = text;
+  } else if (hindiChars >= 2 && hindiChars > latinChars && hindiChars >= tamilChars) {
     language = "Hindi";
     let cleanHindi = text.replace(/[\u0B80-\u0BFF]/g, '').replace(/\b[A-Za-z]{1,3}\b/g, '').trim();
     if (cleanHindi.includes("घटिया") && (cleanHindi.includes("होना ही") || cleanHindi.includes("शर्मनाक") || cleanHindi.includes("तेरा"))) {
@@ -140,7 +142,7 @@ const analyzeToxicityClient = (text) => {
       const transWords = words.map(w => translateHindiWord(w));
       translatedText = transWords.join(" ");
     }
-  } else if (tamilChars > 0 && tamilChars > hindiChars) {
+  } else if (tamilChars >= 2 && tamilChars > latinChars && tamilChars > hindiChars) {
     language = "Tamil";
     let cleanTamil = text.replace(/[\u0900-\u097F]/g, '').trim();
     if (cleanTamil.includes("பார்க்கவே சகிக்கல") || cleanTamil.includes("பார்க்க சகிக்கவில்லை") || cleanTamil.includes("பார்க்கவே சகிக்கவில்லை") || cleanTamil.includes("பார்க்க சகிக்கல")) {
@@ -188,16 +190,25 @@ const analyzeToxicityClient = (text) => {
     "you're so stupid", "nobody cares", "no one cares about you",
     "nobody cares about you", "just disappear", "you should disappear",
     "you're useless", "go away", "never come back", "don't come back",
-    "nobody wants you", "nobody loves you", "you are so useless", "even your excuses are pathetic"
+    "nobody wants you", "nobody loves you", "you are so useless", "even your excuses are pathetic",
+    "when you open your mouth", "open your mouth", "stupidity comes out",
+    "shut your mouth", "shut your face", "keep your mouth shut",
+    "you have no brain", "brainless fool", "you look like a clown",
+    "you make me sick", "delete your post", "nobody cares what you think"
   ];
   
   const toxicWords = {
-    "idiot": 0.75, "loser": 0.7, "dumb": 0.65, "ugly": 0.6, "fat": 0.55,
-    "trash": 0.6, "garbage": 0.6, "worthless": 0.8, "disgusting": 0.7,
-    "stupid": 0.65, "freak": 0.7, "failure": 0.6, "pathetic": 0.7,
-    "creep": 0.65, "pig": 0.6, "hate": 0.55, "useless": 0.65,
-    "bastard": 0.85, "bitch": 0.85, "suck": 0.55, "sucks": 0.55,
-    "whore": 0.85, "slut": 0.85, "moron": 0.75
+    "idiot": 0.75, "idiotic": 0.75, "idiocy": 0.70, "loser": 0.70, "losers": 0.70,
+    "dumb": 0.65, "dumbass": 0.80, "dumber": 0.65, "dumbest": 0.65,
+    "ugly": 0.70, "ugliness": 0.70, "fat": 0.55, "fatty": 0.60,
+    "trash": 0.65, "garbage": 0.65, "worthless": 0.80, "disgusting": 0.75,
+    "stupid": 0.65, "stupidity": 0.75, "stupidly": 0.65, "freak": 0.70, "freaks": 0.70,
+    "failure": 0.65, "pathetic": 0.75, "creep": 0.70, "creepy": 0.65, "pig": 0.65, "pigs": 0.65,
+    "hate": 0.60, "hateful": 0.70, "useless": 0.70, "jerk": 0.65, "fool": 0.60, "foolish": 0.60,
+    "moron": 0.75, "moronic": 0.75, "bastard": 0.85, "bitch": 0.85, "asshole": 0.85,
+    "slut": 0.85, "whore": 0.85, "scum": 0.80, "clown": 0.60, "toxic": 0.65, "toxicity": 0.65,
+    "brainless": 0.75, "bullshit": 0.75, "suck": 0.55, "sucks": 0.55, "eyesore": 0.70,
+    "die": 0.85, "kill": 0.85, "repulsive": 0.75
   };
 
   const textToAnalyze = language === "English" ? clean : translatedText.toLowerCase();
@@ -218,20 +229,27 @@ const analyzeToxicityClient = (text) => {
     score = 0.85;
   } else {
     let wordMatches = 0;
+    let maxFoundWeight = 0.0;
     words.forEach(w => {
       if (toxicWords[w]) {
+        maxFoundWeight = Math.max(maxFoundWeight, toxicWords[w]);
         score = Math.max(score, toxicWords[w]);
         wordMatches++;
       }
     });
 
-    // Check for severe profanities / insults inside fused OCR tokens (e.g. Thisbitch, youidiot)
+    // Check for severe profanities / insults inside fused OCR tokens (e.g. stupidity, openyour, thisbitch, youidiot)
     Object.keys(toxicWords).forEach(tw => {
       if (toxicWords[tw] >= 0.6 && textToAnalyze.includes(tw)) {
+        maxFoundWeight = Math.max(maxFoundWeight, toxicWords[tw]);
         score = Math.max(score, toxicWords[tw]);
         wordMatches++;
       }
     });
+
+    if (maxFoundWeight >= 0.55) {
+      score = maxFoundWeight;
+    }
 
     if (wordMatches > 1) {
       score = Math.min(score + 0.1, 0.95);
@@ -480,8 +498,40 @@ export const api = {
     }
   },
 
+  // Analyze Text/Comment for Toxicity
+  analyzeComment: async (text) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const isToxic = data.label === 'TOXIC' || (data.score && data.score >= 0.5);
+        return {
+          isToxic,
+          toxicityScore: data.score || 0.0,
+          label: data.label,
+          sentiment: { label: isToxic ? "Negative" : "Positive" },
+          emotion: { emotion: isToxic ? "Anger" : "Joy" }
+        };
+      }
+    } catch (err) {
+      console.warn("Backend toxicity endpoint unavailable, using client analysis...", err);
+    }
+    return analyzeToxicityClient(text);
+  },
+
+  analyzeToxicity: async (text) => {
+    return api.analyzeComment(text);
+  },
+
   // Analyze Image for Toxicity & Harassment (Visual + OCR Text)
   analyzeImage: async (fileOrBase64, clientExtractedText = '') => {
+    let textToAnalyze = (clientExtractedText || '').trim();
+
+    // 1. Try Backend Safety Endpoint
     try {
       let res;
       if (typeof fileOrBase64 === 'string') {
@@ -491,15 +541,15 @@ export const api = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image_base64: fileOrBase64,
-            extracted_text: clientExtractedText
+            extracted_text: textToAnalyze
           })
         });
       } else {
         // FormData multipart request
         const formData = new FormData();
         formData.append('file', fileOrBase64);
-        if (clientExtractedText) {
-          formData.append('extracted_text', clientExtractedText);
+        if (textToAnalyze) {
+          formData.append('extracted_text', textToAnalyze);
         }
         res = await fetch(`${BACKEND_URL}/api/analyze-image`, {
           method: 'POST',
@@ -507,41 +557,89 @@ export const api = {
         });
       }
 
-      if (!res.ok) throw new Error(`Backend error: ${res.statusText}`);
-      return await res.json();
+      if (res && res.ok) {
+        const data = await res.json();
+        // If backend blocked the image or extracted text, return backend decision
+        if (data && (!data.allowed || data.result === 'Toxic' || (data.extractedText && data.extractedText.trim()))) {
+          return data;
+        }
+
+        // If backend returned safe but didn't detect any text, double check with browser OCR
+        if (typeof fileOrBase64 === 'string') {
+          const localText = await api.performClientOcr(fileOrBase64);
+          if (localText && localText.trim()) {
+            const localAnalysis = analyzeToxicityClient(localText);
+            if (localAnalysis.isToxic) {
+              return {
+                allowed: false,
+                result: "Toxic",
+                confidence: Math.max(localAnalysis.toxicityScore, 0.88),
+                reason: `Toxic text detected in image: '${localText}'`,
+                extractedText: localText,
+                language: localAnalysis.language,
+                translatedText: localAnalysis.translatedText,
+                toxicityScore: localAnalysis.toxicityScore
+              };
+            }
+            return {
+              ...data,
+              extractedText: localText,
+              language: localAnalysis.language
+            };
+          }
+        }
+        return data;
+      }
     } catch (err) {
       console.warn("Backend image analysis failed/offline, running client-side fallback...", err);
-      
-      // Client-side Fallback Evaluation
-      const textToAnalyze = (clientExtractedText || '').trim();
-      if (textToAnalyze) {
-        const textAnalysis = analyzeToxicityClient(textToAnalyze);
-        const isToxic = textAnalysis.isToxic;
-        const toxScore = textAnalysis.toxicityScore;
-        if (isToxic) {
-          return {
-            allowed: false,
-            result: "Toxic",
-            confidence: Math.max(toxScore, 0.88),
-            reason: "Toxic text detected in image",
-            extractedText: textToAnalyze,
-            language: textAnalysis.language,
-            translatedText: textAnalysis.translatedText,
-            toxicityScore: toxScore
-          };
-        }
-      }
+    }
 
+    // 2. Client-side Fallback Evaluation (Browser Tesseract OCR + Local Toxicity Engine)
+    if (!textToAnalyze && typeof fileOrBase64 === 'string') {
+      try {
+        textToAnalyze = await api.performClientOcr(fileOrBase64);
+      } catch (ocrErr) {
+        console.warn("Client OCR failed:", ocrErr);
+      }
+    }
+
+    if (textToAnalyze) {
+      const textAnalysis = analyzeToxicityClient(textToAnalyze);
+      const isToxic = textAnalysis.isToxic;
+      const toxScore = textAnalysis.toxicityScore;
+      if (isToxic) {
+        return {
+          allowed: false,
+          result: "Toxic",
+          confidence: Math.max(toxScore, 0.88),
+          reason: `Toxic text detected in image: '${textToAnalyze}'`,
+          extractedText: textToAnalyze,
+          language: textAnalysis.language,
+          translatedText: textAnalysis.translatedText,
+          toxicityScore: toxScore
+        };
+      }
       return {
         allowed: true,
         result: "Not Toxic",
         confidence: 0.95,
         reason: "No harmful content detected",
         extractedText: textToAnalyze,
-        language: "English",
-        toxicityScore: 0.02
+        language: textAnalysis.language,
+        translatedText: textAnalysis.translatedText,
+        toxicityScore: toxScore
       };
     }
+
+    return {
+      allowed: true,
+      result: "Not Toxic",
+      confidence: 0.95,
+      reason: "No harmful content detected",
+      extractedText: "",
+      language: "English",
+      toxicityScore: 0.02
+    };
   },
 
   // Uploaded photo assets from Photo folder
@@ -1131,6 +1229,27 @@ export const api = {
       console.warn("Backend offline, unsuspending user locally...", err);
       unsuspendLocalUser(username, reason, details);
       return { status: "success", message: "Unsuspended locally" };
+    }
+  },
+
+  // POST /unwarn
+  unwarnUser: async (username, reason, details) => {
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(`warn_acknowledged_${username}`);
+        localStorage.removeItem(`warn_acknowledged_${username}`);
+      }
+      const res = await fetch(`${BACKEND_URL}/unwarn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, reason: reason || 'Warning revoked by moderator', details: details || '' })
+      });
+      if (!res.ok) throw new Error('Backend failed');
+      return await res.json();
+    } catch (err) {
+      console.warn("Backend offline, unwarning user locally...", err);
+      unwarnLocalUser(username, reason, details);
+      return { status: "success", message: "Unwarned locally" };
     }
   },
 

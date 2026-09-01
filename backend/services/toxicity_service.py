@@ -49,8 +49,7 @@ except Exception as e:
 
 def load_all_models() -> bool:
     """
-    Loads all Hugging Face models and tokenizers once on startup.
-    Performs a startup health check to verify proper inference.
+    Loads all Hugging Face models and tokenizers independently on startup.
     """
     global _models, MODELS_LOADED, DEVICE
     if not HAS_TORCH:
@@ -59,40 +58,53 @@ def load_all_models() -> bool:
         return False
         
     logger.info(f"Toxicity Service: Initializing on device: {DEVICE}")
+    
+    # 1. Load Toxicity Model (crucial for toxicity detection)
     try:
-        # 1. Load Translation Models (Helsinki-NLP OPUS)
-        logger.info(f"Loading Tamil translation model: {TRANSLATION_TAMIL_MODEL}...")
-        _models["tamil_tokenizer"] = AutoTokenizer.from_pretrained(TRANSLATION_TAMIL_MODEL)
-        _models["tamil_model"] = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATION_TAMIL_MODEL).to(DEVICE)
-        
-        logger.info(f"Loading Hindi translation model: {TRANSLATION_HINDI_MODEL}...")
-        _models["hindi_tokenizer"] = AutoTokenizer.from_pretrained(TRANSLATION_HINDI_MODEL)
-        _models["hindi_model"] = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATION_HINDI_MODEL).to(DEVICE)
-        
-        # 2. Load Toxicity Model (toxic-bert)
         logger.info(f"Loading toxicity model: {TOXICITY_MODEL_NAME}...")
         _models["toxicity_tokenizer"] = AutoTokenizer.from_pretrained(TOXICITY_MODEL_NAME)
         _models["toxicity_model"] = AutoModelForSequenceClassification.from_pretrained(TOXICITY_MODEL_NAME).to(DEVICE)
+        logger.info("Toxicity model loaded successfully.")
+    except Exception as e:
+        logger.warning(f"Could not load toxicity model {TOXICITY_MODEL_NAME}: {e}")
 
-        # 3. Load Emotion Model (roberta-base-go_emotions)
+    # 2. Load Tamil Translation Model
+    try:
+        logger.info(f"Loading Tamil translation model: {TRANSLATION_TAMIL_MODEL}...")
+        _models["tamil_tokenizer"] = AutoTokenizer.from_pretrained(TRANSLATION_TAMIL_MODEL)
+        _models["tamil_model"] = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATION_TAMIL_MODEL).to(DEVICE)
+        logger.info("Tamil translation model loaded.")
+    except Exception as e:
+        logger.warning(f"Tamil translation model could not be loaded: {e}")
+
+    # 3. Load Hindi Translation Model
+    try:
+        logger.info(f"Loading Hindi translation model: {TRANSLATION_HINDI_MODEL}...")
+        _models["hindi_tokenizer"] = AutoTokenizer.from_pretrained(TRANSLATION_HINDI_MODEL)
+        _models["hindi_model"] = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATION_HINDI_MODEL).to(DEVICE)
+        logger.info("Hindi translation model loaded.")
+    except Exception as e:
+        logger.warning(f"Hindi translation model could not be loaded: {e}")
+
+    # 4. Load Emotion Model
+    try:
         logger.info(f"Loading emotion model: {EMOTION_MODEL_NAME}...")
         _models["emotion_tokenizer"] = AutoTokenizer.from_pretrained(EMOTION_MODEL_NAME)
         _models["emotion_model"] = AutoModelForSequenceClassification.from_pretrained(EMOTION_MODEL_NAME).to(DEVICE)
+        logger.info("Emotion model loaded.")
+    except Exception as e:
+        logger.warning(f"Emotion model could not be loaded: {e}")
 
-        # 4. Sentiment Analyzer (using VADER SentimentIntensityAnalyzer directly)
+    # 5. Sentiment Analyzer
+    try:
         from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
         _models["sentiment_analyzer"] = SentimentIntensityAnalyzer()
-
-        MODELS_LOADED = True
-        logger.info("All Hugging Face models loaded successfully.")
-        
-        # Run startup health check
-        run_startup_health_check()
-        return True
     except Exception as e:
-        logger.error(f"Failed to load Hugging Face models: {e}. Server will run with rule-based fallback.")
-        MODELS_LOADED = False
-        return False
+        logger.warning(f"VADER Sentiment Analyzer notice: {e}")
+
+    MODELS_LOADED = ("toxicity_model" in _models)
+    logger.info(f"Hugging Face models initialization complete. Toxicity model ready: {MODELS_LOADED}")
+    return MODELS_LOADED
 
 def run_startup_health_check():
     """
@@ -284,13 +296,18 @@ def detect_language(text: str) -> Tuple[str, float]:
     if not text or not text.strip():
         return "English", 1.0
 
-    # Count script characters for robust multi-script / OCR noise handling
+    latin_chars = sum(1 for c in text if ('A' <= c <= 'Z' or 'a' <= c <= 'z'))
     tamil_chars = sum(1 for c in text if 0x0B80 <= ord(c) <= 0x0BFF)
     hindi_chars = sum(1 for c in text if 0x0900 <= ord(c) <= 0x097F)
 
-    if hindi_chars > 0 and hindi_chars >= tamil_chars:
+    # If predominantly Latin characters, it is English!
+    if latin_chars >= 2 and latin_chars >= hindi_chars and latin_chars >= tamil_chars:
+        return "English", 1.0
+
+    # Genuine Indic script checks
+    if hindi_chars >= 2 and hindi_chars > latin_chars and hindi_chars >= tamil_chars:
         return "Hindi", 1.0
-    if tamil_chars > 0 and tamil_chars > hindi_chars:
+    if tamil_chars >= 2 and tamil_chars > latin_chars and tamil_chars > hindi_chars:
         return "Tamil", 1.0
 
     try:
@@ -307,7 +324,7 @@ def detect_language(text: str) -> Tuple[str, float]:
         
         return lang_map.get(lang_code, "English"), round(confidence, 4)
     except Exception as e:
-        logger.warning(f"Language detection failed: {e}. Defaulting to English.")
+        logger.warning(f"Language detection fallback: {e}. Defaulting to English.")
         return "English", 1.0
 
 def translate_to_english(text: str, source_lang: str) -> str:
@@ -342,13 +359,16 @@ def translate_to_english(text: str, source_lang: str) -> str:
         
     try:
         if source_lang == "Tamil":
-            tokenizer = _models["tamil_tokenizer"]
-            model = _models["tamil_model"]
-            # Multilingual model needs >>eng<< prefix
+            tokenizer = _models.get("tamil_tokenizer")
+            model = _models.get("tamil_model")
+            if not tokenizer or not model:
+                return fallback_analyzer.clean_and_translate_phrase(clean_text, source_lang) if fallback_analyzer else clean_text
             input_text = ">>eng<< " + clean_text
         else:
-            tokenizer = _models["hindi_tokenizer"]
-            model = _models["hindi_model"]
+            tokenizer = _models.get("hindi_tokenizer")
+            model = _models.get("hindi_model")
+            if not tokenizer or not model:
+                return fallback_analyzer.clean_and_translate_phrase(clean_text, source_lang) if fallback_analyzer else clean_text
             input_text = clean_text
             
         inputs = tokenizer(input_text, return_tensors="pt", truncation=True).to(DEVICE)
@@ -393,13 +413,9 @@ def analyze_text(text: str) -> Dict[str, Any]:
     language, lang_confidence = detect_language(text)
     
     translated_text = text
-    if language in ["Tamil", "Hindi"]:
-        translated_text = translate_to_english(text, language)
-    elif re.search(r'[\u0B80-\u0BFF]', text):
-        language = "Tamil"
+    if language == "Tamil":
         translated_text = translate_to_english(text, "Tamil")
-    elif re.search(r'[\u0900-\u097F]', text):
-        language = "Hindi"
+    elif language == "Hindi":
         translated_text = translate_to_english(text, "Hindi")
         
     analysis_text = translated_text if language != "English" else text

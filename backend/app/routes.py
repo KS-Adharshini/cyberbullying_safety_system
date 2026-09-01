@@ -677,6 +677,11 @@ async def get_moderator_user_summary(username: str):
     # Fetch all comments made by the user
     comments_cursor = db.comments.find({"commentBy": username}).sort("timestamp", -1)
     comments = await comments_cursor.to_list(length=500)
+    for c in comments:
+        if "_id" in c:
+            del c["_id"]
+        if isinstance(c.get("timestamp"), datetime):
+            c["timestamp"] = c["timestamp"].isoformat()
     
     # Analyze harassment using harassment module
     harassment_data = analyze_harassment(comments)
@@ -694,7 +699,7 @@ async def get_moderator_user_summary(username: str):
             "moderator": log["moderator"],
             "reason": log["reason"],
             "details": log.get("details"),
-            "timestamp": log["timestamp"]
+            "timestamp": log["timestamp"].isoformat() if isinstance(log.get("timestamp"), datetime) else str(log.get("timestamp", ""))
         })
         
     return {
@@ -829,6 +834,29 @@ async def unsuspend_user(req: ActionRequest):
     }
     await db.moderation_logs.insert_one(log)
     return {"status": "success", "message": f"User {username} unsuspended."}
+
+@router.post("/unwarn")
+async def unwarn_user(req: ActionRequest):
+    username = req.username.strip().lower()
+    user = await db.users.find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    # Reset status to Normal
+    await db.users.update_one({"username": username}, {"$set": {"status": "Normal"}})
+    
+    # Log
+    log = {
+        "logId": str(uuid.uuid4()),
+        "action": "UNWARN",
+        "targetUser": username,
+        "moderator": "Admin_Moderator",
+        "reason": req.reason or "Warning revoked by moderator.",
+        "details": req.details or "Account restored to Normal status without warning popup.",
+        "timestamp": datetime.utcnow()
+    }
+    await db.moderation_logs.insert_one(log)
+    return {"status": "success", "message": f"Warning revoked for user {username}. Status is now Normal."}
 
 @router.post("/acknowledge")
 async def acknowledge_warning(req: ActionRequest):

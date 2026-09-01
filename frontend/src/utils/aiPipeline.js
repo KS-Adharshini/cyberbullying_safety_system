@@ -41,11 +41,17 @@ export const isModelReady = () => {
 
 export const runAiPipeline = async (text) => {
   // 1. Script-based automatic language detection
+  const latinChars = (text.match(/[A-Za-z]/g) || []).length;
+  const tamilChars = (text.match(/[\u0B80-\u0BFF]/g) || []).length;
+  const hindiChars = (text.match(/[\u0900-\u097F]/g) || []).length;
+
   let language = "English";
-  if (/[\u0B80-\u0BFF]/.test(text)) {
-    language = "Tamil";
-  } else if (/[\u0900-\u097F]/.test(text)) {
+  if (latinChars >= 2 && latinChars >= hindiChars && latinChars >= tamilChars) {
+    language = "English";
+  } else if (hindiChars >= 2 && hindiChars > latinChars && hindiChars >= tamilChars) {
     language = "Hindi";
+  } else if (tamilChars >= 2 && tamilChars > latinChars && tamilChars > hindiChars) {
+    language = "Tamil";
   }
 
   // Check if models are fully loaded; if not, fail fast to use regex fallback

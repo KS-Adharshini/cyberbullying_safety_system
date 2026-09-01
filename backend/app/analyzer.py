@@ -5,7 +5,7 @@ class ToxicityAnalyzer:
     def __init__(self):
         self.sia = SentimentIntensityAnalyzer()
         
-        # High-severity harassment phrases
+        # High-severity harassment & insult phrases (including meme text & cyberbullying idioms)
         self.severe_phrases = [
             "kill yourself", "go die", "nobody likes you", "hate you", 
             "get lost", "f@#k", "worthless piece", "shut up",
@@ -13,49 +13,100 @@ class ToxicityAnalyzer:
             "pathetic loser", "delete your account", "disgusting to look at",
             "unbearable to look at", "looking at it can't stand",
             "can't stand looking", "horrible to look at", "nobody needs your opinion",
-            "nobody asked for your opinion", "not needed by anyone", "waste of time",
-            "waste of space", "disgusted to look at your face",
-            "no one cares about you", "nobody cares about you",
-            "just disappear", "you should disappear", "you are so useless",
+            "nobody asked for your opinion", "nobody asked you", "not needed by anyone", 
+            "waste of time", "waste of space", "waste of oxygen",
+            "disgusted to look at your face", "disgusted by your face",
+            "no one cares about you", "nobody cares about you", "nobody cares",
+            "just disappear", "you should disappear", "you are so useless", "you're so useless",
             "even your excuses are pathetic", "never come back", "don't come back",
-            "go away", "nobody wants you", "nobody loves you"
+            "go away", "nobody wants you", "nobody loves you",
+            "when you open your mouth", "open your mouth", "stupidity comes out",
+            "shut your mouth", "shut your face", "keep your mouth shut",
+            "you have no brain", "brainless fool", "you look like a clown",
+            "you make me sick", "you are an embarrassment", "delete your post",
+            "stop talking", "nobody cares what you think", "you are so stupid",
+            "you're so stupid", "you are an idiot", "you are a moron", "you are a loser"
         ]
         
-        # Toxic words list
+        # Toxic & insulting words dictionary with calibrated severity weights
         self.toxic_words = {
-            "idiot": 0.4,
-            "loser": 0.4,
-            "dumb": 0.35,
-            "ugly": 0.45,
-            "fat": 0.3,
-            "trash": 0.35,
-            "garbage": 0.35,
-            "worthless": 0.4,
-            "disgusting": 0.5,
-            "repulsive": 0.5,
-            "unbearable": 0.4,
-            "intolerable": 0.4,
-            "awful": 0.35,
-            "horrible": 0.35,
-            "stupid": 0.35,
-            "freak": 0.35,
-            "failure": 0.35,
-            "pathetic": 0.4,
-            "creep": 0.35,
-            "pig": 0.35,
-            "hate": 0.3,
-            "annoying": 0.25,
-            "useless": 0.35,
-            "jerk": 0.35,
-            "fool": 0.3,
-            "moron": 0.4,
-            "bastard": 0.5,
-            "bitch": 0.5,
-            "worst": 0.4,
-            "bad": 0.2,
-            "suck": 0.35,
-            "sucks": 0.35,
-            "eyesore": 0.45
+            "idiot": 0.75,
+            "idiotic": 0.75,
+            "idiocy": 0.70,
+            "loser": 0.70,
+            "losers": 0.70,
+            "dumb": 0.65,
+            "dumbass": 0.80,
+            "dumber": 0.65,
+            "dumbest": 0.65,
+            "ugly": 0.70,
+            "ugliness": 0.70,
+            "fat": 0.55,
+            "fatty": 0.60,
+            "trash": 0.65,
+            "garbage": 0.65,
+            "worthless": 0.80,
+            "disgusting": 0.75,
+            "disgust": 0.65,
+            "repulsive": 0.75,
+            "unbearable": 0.65,
+            "intolerable": 0.60,
+            "awful": 0.50,
+            "horrible": 0.55,
+            "stupid": 0.65,
+            "stupidity": 0.75,
+            "stupidly": 0.65,
+            "freak": 0.70,
+            "freaks": 0.70,
+            "failure": 0.65,
+            "pathetic": 0.75,
+            "creep": 0.70,
+            "creepy": 0.65,
+            "pig": 0.65,
+            "pigs": 0.65,
+            "hate": 0.60,
+            "hateful": 0.70,
+            "hater": 0.55,
+            "haters": 0.55,
+            "annoying": 0.45,
+            "useless": 0.70,
+            "jerk": 0.65,
+            "fool": 0.60,
+            "foolish": 0.60,
+            "foolishness": 0.60,
+            "moron": 0.75,
+            "moronic": 0.75,
+            "bastard": 0.85,
+            "bastards": 0.85,
+            "bitch": 0.85,
+            "bitches": 0.85,
+            "asshole": 0.85,
+            "assholes": 0.85,
+            "slut": 0.85,
+            "sluts": 0.85,
+            "whore": 0.85,
+            "whores": 0.85,
+            "scum": 0.80,
+            "clown": 0.60,
+            "clowns": 0.60,
+            "toxic": 0.65,
+            "toxicity": 0.65,
+            "brainless": 0.75,
+            "senseless": 0.55,
+            "bullshit": 0.75,
+            "crap": 0.50,
+            "nonsense": 0.50,
+            "disgrace": 0.70,
+            "shameful": 0.70,
+            "shame": 0.55,
+            "worst": 0.55,
+            "bad": 0.25,
+            "suck": 0.55,
+            "sucks": 0.55,
+            "eyesore": 0.70,
+            "die": 0.85,
+            "kill": 0.85,
+            "murder": 0.85
         }
 
         # Tamil dictionary for fallback translation
@@ -457,14 +508,18 @@ class ToxicityAnalyzer:
         language = "English"
         translated_text = text
 
-        # Count script characters for accurate detection even with noisy OCR
+        # Count script characters for accurate script detection
+        latin_chars = sum(1 for c in text if ('A' <= c <= 'Z' or 'a' <= c <= 'z'))
         tamil_chars = sum(1 for c in text if 0x0B80 <= ord(c) <= 0x0BFF)
         hindi_chars = sum(1 for c in text if 0x0900 <= ord(c) <= 0x097F)
 
-        if hindi_chars > 0 and hindi_chars >= tamil_chars:
+        if latin_chars >= 2 and latin_chars >= hindi_chars and latin_chars >= tamil_chars:
+            language = "English"
+            translated_text = text
+        elif hindi_chars >= 2 and hindi_chars > latin_chars and hindi_chars >= tamil_chars:
             language = "Hindi"
             translated_text = self.clean_and_translate_phrase(text, "Hindi")
-        elif tamil_chars > 0 and tamil_chars > hindi_chars:
+        elif tamil_chars >= 2 and tamil_chars > latin_chars and tamil_chars > hindi_chars:
             language = "Tamil"
             translated_text = self.clean_and_translate_phrase(text, "Tamil")
 
@@ -489,38 +544,50 @@ class ToxicityAnalyzer:
         for phrase in self.severe_phrases:
             if phrase in clean_text:
                 matched_phrases.append(phrase)
-                phrase_score = max(phrase_score, 0.6)  # Direct trigger score
+                phrase_score = max(phrase_score, 0.80)  # Direct trigger score
                 
-        # 3. Word matching (handles exact words and fused OCR words like 'Thisbitch')
+        # 3. Word matching (handles exact words and fused OCR words like 'openyour', 'youidiot')
         word_score = 0.0
         words = re.findall(r'\b\w+\b', clean_text)
         matched_words = []
+        max_word_weight = 0.0
         for word in words:
             if word in self.toxic_words:
                 matched_words.append(word)
-                word_score += self.toxic_words[word]
+                w_weight = self.toxic_words[word]
+                max_word_weight = max(max_word_weight, w_weight)
+                word_score += w_weight
         
-        # Check fused/compound tokens for severe profanities and insults
-        for severe_word in ["bitch", "bastard", "idiot", "loser", "dumb", "ugly", "freak", "moron", "slut", "whore", "pig"]:
-            if severe_word not in matched_words and severe_word in clean_text:
-                matched_words.append(severe_word)
-                word_score += self.toxic_words.get(severe_word, 0.5)
+        # Check fused/compound tokens and word stems (e.g. 'stupidity', 'openyour', 'thisbitch')
+        for severe_stem in [
+            "stupid", "idiot", "loser", "dumb", "ugly", "freak", "moron", 
+            "slut", "whore", "pig", "bastard", "bitch", "asshole", "scum", 
+            "worthless", "garbage", "trash", "bullshit", "brainless", "clown", "repulsive", "disgust"
+        ]:
+            if severe_stem not in matched_words and severe_stem in clean_text:
+                matched_words.append(severe_stem)
+                weight = self.toxic_words.get(severe_stem, 0.65)
+                max_word_weight = max(max_word_weight, weight)
+                word_score += weight
         
-        # Cap word score contributions at 0.5 to prevent overflow, unless it's repeated
-        word_score = min(word_score, 0.5)
+        # If explicit severe insult words are detected, ensure word score is at least the highest word weight
+        if max_word_weight >= 0.55:
+            word_score = max(word_score, max_word_weight)
         
         # 4. Calculate overall weighted score
         if phrase_score > 0:
-            toxicity_score = phrase_score + (word_score * 0.4) + (base_score * 0.2)
+            toxicity_score = phrase_score + (min(word_score, 0.5) * 0.2) + (base_score * 0.1)
+        elif max_word_weight >= 0.55:
+            toxicity_score = max_word_weight + (base_score * 0.2)
         else:
-            toxicity_score = base_score + word_score
+            toxicity_score = base_score + min(word_score, 0.45)
             
         # Cap at 1.0 and format to 2 decimal places
         toxicity_score = min(max(toxicity_score, 0.0), 1.0)
         toxicity_score = round(toxicity_score, 2)
         
         # Classification threshold
-        is_toxic = toxicity_score >= 0.5
+        is_toxic = toxicity_score >= 0.50
         
         # Sentiment label mapping
         clean_trimmed = translated_text.strip()

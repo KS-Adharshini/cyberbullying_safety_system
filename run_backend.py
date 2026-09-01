@@ -22,4 +22,4 @@ if __name__ == "__main__":
     # Add workspace directory to path
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     print("Booting Safety Portal FastAPI Server...")
-    uvicorn.run("backend.app.main:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("backend.app.main:app", host="127.0.0.1", port=8000, reload=True)

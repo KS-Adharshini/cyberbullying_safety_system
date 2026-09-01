@@ -43,8 +43,6 @@ function ImageReports() {
 
   useEffect(() => {
     loadReports()
-    const reportsInterval = setInterval(() => loadReports(false), 5000)
-    return () => clearInterval(reportsInterval)
   }, [])
 
   const summary = useMemo(() => ({

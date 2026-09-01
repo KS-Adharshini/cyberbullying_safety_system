@@ -61,27 +61,17 @@ function CreatePostModal({ isOpen, onClose, currentUser, onPostCreated }) {
     setIsScanning(true)
     setScanResult(null)
     try {
-      // 1. Direct call to fast backend analysis (EasyOCR + Toxicity)
-      const analysis = await api.analyzeImage(file, '')
+      // Analyze with backend endpoint and instant browser OCR fallback
+      const analysis = await api.analyzeImage(base64Data || file, '')
       setScanResult(analysis)
     } catch (err) {
-      console.warn("Backend image safety analysis unavailable, running client-side fallback...", err)
-      // 2. Fallback to client-side OCR and evaluation if backend is unreachable
+      console.warn("Safety scan error:", err)
       try {
         const clientText = await api.performClientOcr(base64Data)
         const fallbackAnalysis = await api.analyzeImage(base64Data, clientText)
         setScanResult(fallbackAnalysis)
       } catch (fallbackErr) {
         console.error("Client fallback error:", fallbackErr)
-        setScanResult({
-          allowed: true,
-          result: "Not Toxic",
-          confidence: 0.95,
-          reason: "No harmful content detected",
-          extractedText: "",
-          language: "English",
-          toxicityScore: 0.02
-        })
       }
     } finally {
       setIsScanning(false)

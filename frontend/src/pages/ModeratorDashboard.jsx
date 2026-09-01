@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Shield, AlertTriangle, AlertOctagon, UserX, UserMinus, UserCheck, ShieldAlert, MessageCircle, Calendar, Users, EyeOff, CheckCircle } from 'lucide-react'
+import { Shield, AlertTriangle, AlertOctagon, UserX, UserMinus, UserCheck, ShieldAlert, ShieldCheck, MessageCircle, Calendar, Users, EyeOff, CheckCircle } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { api } from '../utils/api'
 
@@ -15,7 +15,7 @@ function ModeratorDashboard() {
   const [error, setError] = useState(null)
 
   // Modals state
-  const [activeModal, setActiveModal] = useState(null) // 'warn', 'suspend', 'delete'
+  const [activeModal, setActiveModal] = useState(null) // 'warn', 'unwarn', 'suspend', 'unsuspend', 'delete'
   const [modalCommentId, setModalCommentId] = useState(null)
   const [actionReason, setActionReason] = useState('')
   const [actionDetails, setActionDetails] = useState('')
@@ -74,6 +74,19 @@ function ModeratorDashboard() {
     try {
       await api.warnUser(selectedUser, actionReason, actionDetails)
       alert(`User @${selectedUser} has been officially warned.`)
+      setActiveModal(null)
+      fetchModeratorData(selectedUser)
+      fetchUsers() // refresh list to update badges
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const handleUnwarnUserSubmit = async (e) => {
+    if (e) e.preventDefault()
+    try {
+      await api.unwarnUser(selectedUser, actionReason || 'Warning revoked by moderator', actionDetails)
+      alert(`User @${selectedUser} warning has been revoked. Account is restored to Normal without popups.`)
       setActiveModal(null)
       fetchModeratorData(selectedUser)
       fetchUsers() // refresh list to update badges
@@ -218,17 +231,31 @@ function ModeratorDashboard() {
                   <strong>Reason:</strong> {modData.repeatedHarassment.reason}
                 </p>
                 <div style={{ margin: '10px 0 0 34px', display: 'flex', gap: '10px' }}>
-                  <button 
-                    onClick={() => {
-                      setActionReason(modData.repeatedHarassment.reason)
-                      setActionDetails("Automated AI Repeated Harassment detection flag.")
-                      setActiveModal('warn')
-                    }}
-                    className="btn-primary btn-warn"
-                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                  >
-                    Issue Warning
-                  </button>
+                  {modData.profile.status.toLowerCase() === 'warned' ? (
+                    <button 
+                      onClick={() => {
+                        setActionReason("Warning revoked by moderator review.")
+                        setActionDetails("Automated AI Repeated Harassment warning cleared.")
+                        setActiveModal('unwarn')
+                      }}
+                      className="btn-primary"
+                      style={{ padding: '6px 12px', fontSize: '0.8rem', background: 'var(--success)', borderColor: 'var(--success)' }}
+                    >
+                      Unwarn Profile
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        setActionReason(modData.repeatedHarassment.reason)
+                        setActionDetails("Automated AI Repeated Harassment detection flag.")
+                        setActiveModal('warn')
+                      }}
+                      className="btn-primary btn-warn"
+                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    >
+                      Issue Warning
+                    </button>
+                  )}
                   <button 
                     onClick={() => {
                       setActionReason(modData.repeatedHarassment.reason)
@@ -360,17 +387,32 @@ function ModeratorDashboard() {
                   </div>
                 </div>
 
-                <div className="moderator-action-buttons">
-                  <button 
-                    onClick={() => {
-                      setActionReason("Harassment/abusive behavior in comments.")
-                      setActionDetails("")
-                      setActiveModal('warn')
-                    }}
-                    className="btn-outline btn-warn"
-                  >
-                    <AlertTriangle size={16} /> Warn Account
-                  </button>
+                <div className="moderator-action-buttons" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                  {modData.profile.status.toLowerCase() === 'warned' ? (
+                    <button 
+                      onClick={() => {
+                        setActionReason("Warning revoked by moderator review.")
+                        setActionDetails("Account status restored to Normal.")
+                        setActiveModal('unwarn')
+                      }}
+                      className="btn-outline"
+                      style={{ borderColor: 'var(--success)', color: 'var(--success)', background: 'rgba(34, 197, 94, 0.08)' }}
+                    >
+                      <ShieldCheck size={16} /> Unwarn Account
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        setActionReason("Harassment/abusive behavior in comments.")
+                        setActionDetails("")
+                        setActiveModal('warn')
+                      }}
+                      className="btn-outline btn-warn"
+                    >
+                      <AlertTriangle size={16} /> Warn Account
+                    </button>
+                  )}
+
                   {modData.profile.status.toLowerCase() === 'suspended' ? (
                     <button 
                       onClick={() => {
@@ -553,6 +595,46 @@ function ModeratorDashboard() {
             <div className="modal-footer">
               <button type="button" onClick={() => setActiveModal(null)} className="btn-outline">Cancel</button>
               <button type="submit" className="btn-primary btn-warn">Submit Warning</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {activeModal === 'unwarn' && (
+        <div className="modal-overlay">
+          <form onSubmit={handleUnwarnUserSubmit} className="modal-content glass-panel">
+            <h3 className="modal-title" style={{ color: 'var(--success)' }}>Unwarn User @{selectedUser}</h3>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <p>
+                This will revoke the active warning badge, restore account status to <strong>Normal</strong>, and eliminate any warning popups for this user.
+              </p>
+              
+              <div>
+                <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '6px' }}>Reason for Revoking Warning</label>
+                <input 
+                  type="text" 
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="e.g. Warning reviewed and dismissed / Good behavior"
+                  className="glass-input"
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '6px' }}>Additional Moderator Notes</label>
+                <textarea 
+                  value={actionDetails}
+                  onChange={(e) => setActionDetails(e.target.value)}
+                  placeholder="e.g. Cleared by administrator after review."
+                  className="glass-input"
+                  style={{ minHeight: '80px', resize: 'vertical' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" onClick={() => setActiveModal(null)} className="btn-outline">Cancel</button>
+              <button type="submit" className="btn-primary" style={{ background: 'var(--success)', borderColor: 'var(--success)' }}>Confirm Unwarn</button>
             </div>
           </form>
         </div>
